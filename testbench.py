@@ -300,3 +300,236 @@ if __name__ == "__main__":
 		print "Done"
 		
 	sys.exit(0)
+
+def streamingTest():
+	
+	listen_address = ("127.0.0.1", 9876)
+	message = OSCMessage()
+	message.setAddress("/print")
+	message.append(44)
+	message.append(11)
+	message.append(4.5)
+	message.append("the white cliffs of dover")
+	
+	print message
+	hexDump(message.getBinary())
+
+	print "\nMaking and unmaking a message.."
+
+	strings = OSCMessage("/prin{ce,t}")
+	strings.append("Mary had a little lamb")
+	strings.append("its fleece was white as snow")
+	strings.append("and everywhere that Mary went,")
+	strings.append("the lamb was sure to go.")
+	strings.append(14.5)
+	strings.append(14.5)
+	strings.append(-400)
+
+	raw  = strings.getBinary()
+
+	print strings
+	hexDump(raw)
+
+	print "Retrieving arguments..."
+	data = raw
+	for i in range(6):
+		text, data = _readString(data)
+		print text
+
+	number, data = _readFloat(data)
+	print number
+
+	number, data = _readFloat(data)
+	print number
+
+	number, data = _readInt(data)
+	print number
+
+	print decodeOSC(raw)
+
+	print "\nTesting Blob types."
+
+	blob = OSCMessage("/pri*")
+	blob.append("","b")
+	blob.append("b","b")
+	blob.append("bl","b")
+	blob.append("blo","b")
+	blob.append("blob","b")
+	blob.append("blobs","b")
+	blob.append(42)
+
+	print blob
+	hexDump(blob.getBinary())
+
+	print1 = OSCMessage()
+	print1.setAddress("/print")
+	print1.append("Hey man, that's cool.")
+	print1.append(42)
+	print1.append(3.1415926)
+
+	print "\nTesting OSCBundle"
+
+	bundle = OSCBundle()
+	bundle.append(print1)
+	bundle.append({'addr':"/print", 'args':["bundled messages:", 2]})
+	bundle.setAddress("/*print")
+	bundle.append(("no,", 3, "actually."))
+
+	print bundle
+	hexDump(bundle.getBinary())
+	
+			
+	# Now an OSCServer...
+	print "\nInstantiating OSCServer:"
+	
+	# define a message-handler function for the server to call.
+	def printing_handler(addr, tags, stuff, source):
+		msg_string = "%s [%s] %s" % (addr, tags, str(stuff))
+		msg_string = "SERVER: Got '%s' from %s\n" % (msg_string, getUrlStr(source))
+		print msg_string
+		
+		# send a reply to the client.
+		msg = OSCMessage("/printed")
+		msg.append(msg_string)
+		return msg
+
+	# define a message-handler function for the server to call.
+	def info_handler(addr, tags, stuff, source):
+		print "SERVER: Info ", addr
+		
+	def default_handler(addr, tags, stuff, source):
+		print "SERVER: No handler registered for ", addr
+		return None
+
+#	if opts.threading:
+#		s = ThreadingOSCServer(listen_address, c, return_port=listen_address[1])
+#	elif opts.forking:
+#		s = ForkingOSCServer(listen_address, c, return_port=listen_address[1])
+#	else:
+	s = OSCStreamingServer(listen_address)
+	
+	print s
+
+	s.addMsgHandler("/print", printing_handler)
+	s.addMsgHandler("/info", info_handler)
+	s.addMsgHandler("default", default_handler)
+	
+	print "Registered Callback-functions:"
+	for addr in s.getOSCAddressSpace():
+		print addr
+		
+	print "\nStarting OSCServer. Use ctrl-C to quit."
+	st = threading.Thread(target=s.serve_forever)
+	st.start()
+	
+	
+	# Instantiate OSCClient
+	print "\nInstantiating OSCClient:"
+#	if len(targets):
+#		c = OSCMultiClient()
+#		c.updateOSCTargets(targets)
+#	else:
+#		c = OSCClient()
+#		c.connect(listen_address)	# connect back to our OSCServer
+	# define a message-handler function for the server to call.
+	def printed_handler(addr, tags, stuff, source):
+		print "CLIENT: Printed Handler: ", addr
+		
+	c = OSCStreamingClient()
+	c.connect(listen_address)
+	c.addMsgHandler("/printed", printed_handler)
+	
+	print c
+	if hasattr(c, 'getOSCTargetStrings'):
+		print "Sending to:"
+		for (trg, filterstrings) in c.getOSCTargetStrings():
+			out = trg
+			for fs in filterstrings:
+				out += " %s" % fs
+				
+			print out
+	
+	if 0:
+		print "\nRequesting OSC-address-space and subscribed clients from OSCServer"
+		inforeq = OSCMessage("/info")
+		for cmd in ("info", "list", "clients"):
+			inforeq.clearData()
+			inforeq.append(cmd)
+			print "sending: ", inforeq
+			c.sendOSC(inforeq)
+			time.sleep(0.1)
+	
+	print "\nSending Messages"
+	print2 = print1.copy()
+	print2.setAddress('/noprint')
+	for m in (message, print1, print2, strings, bundle):
+		print "sending: ", m
+		c.sendOSC(m)
+		time.sleep(0.1)
+		
+	print "\nThe next message's address will match both the '/print' and '/printed' handlers..."
+	print "sending: ", blob
+	c.sendOSC(blob)
+	time.sleep(0.1)
+
+	print "\nBundles can be given a timestamp.\nThe receiving server should 'hold' the bundle until its time has come"
+	
+	waitbundle = OSCBundle("/print")
+	waitbundle.setTimeTag(time.time() + 5)
+	if s.__class__ == OSCServer:
+		waitbundle.append("Note how the (single-thread) OSCServer blocks while holding this bundle")
+	else:
+		waitbundle.append("Note how the %s does not block while holding this bundle" % s.__class__.__name__)
+	
+	print "Set timetag 5 s into the future"
+	print "sending: ", waitbundle
+	c.sendOSC(waitbundle)
+	
+	time.sleep(0.1)
+
+	print "Recursing bundles, with timetags set to 10 s [25 s, 20 s, 10 s]"
+	bb = OSCBundle("/print")
+	bb.setTimeTag(time.time() + 10)
+	
+	b = OSCBundle("/print")
+	b.setTimeTag(time.time() + 25)
+	b.append("held for 25 sec")
+	bb.append(b)
+	
+	b.clearData()
+	b.setTimeTag(time.time() + 20)
+	b.append("held for 20 sec")
+	bb.append(b)
+	
+	b.clearData()
+	b.setTimeTag(time.time() + 15)
+	b.append("held for 15 sec")
+	bb.append(b)
+	
+	if s.__class__ == OSCServer:
+		bb.append("Note how the (single-thread) OSCServer handles the bundle's contents in order of appearance")
+	else:
+		bb.append("Note how the %s handles the sub-bundles in the order dictated by their timestamps" % s.__class__.__name__)
+		bb.append("Each bundle's contents, however, are processed in random order (dictated by the kernel's threading)")
+	
+	print "sending: ", bb
+	c.sendOSC(bb)
+	
+	time.sleep(0.1)
+
+	print "\nMessages sent!"
+	
+	print "\nWaiting for OSCServer. Use ctrl-C to quit.\n"
+	
+	try:
+		while True:
+			time.sleep(30)
+	
+	except KeyboardInterrupt:
+		print "\nClosing OSCServer."
+		s.close()
+		print "Waiting for Server-thread to finish"
+		st.join()
+		print "Closing OSCClient"
+		c.close()
+		print "Done"

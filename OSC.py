@@ -1,73 +1,90 @@
 #!/usr/bin/python
 """
-This module contains an OpenSoundControl implementation (in Pure Python), based (somewhat) on the 
-good old 'SimpleOSC' implementation by Daniel Holth & Clinton McChesney.
+This module contains an OpenSoundControl implementation (in Pure Python), based
+(somewhat) on the good old 'SimpleOSC' implementation by Daniel Holth & Clinton
+McChesney.
 
-This implementation is intended to still be 'Simple' to the user, but much more complete
-(with OSCServer & OSCClient classes) and much more powerful
-(the OSCMultiClient supports subscriptions & message-filtering,
-OSCMessage & OSCBundle are now proper container-types)
+This implementation is intended to still be 'simple' to the user, but much more
+complete (with OSCServer & OSCClient classes) and much more powerful (the
+OSCMultiClient supports subscriptions & message-filtering, OSCMessage &
+OSCBundle are now proper container-types)
 
-================
+===============================================================================
 OpenSoundControl
-================
+===============================================================================
 
-OpenSoundControl is a network-protocol for sending (small) packets of addressed data over network sockets.
-This OSC-implementation uses the UDP/IP protocol for sending and receiving packets.
-(Although it is theoretically possible to send OSC-packets over TCP, almost all known implementations use UDP) 
+OpenSoundControl is a network-protocol for sending (small) packets of addressed
+data over network sockets. This OSC-implementation supports the classical 
+UDP/IP protocol for sending and receiving packets but provides as well support
+for TCP/IP streaming, whereas the message size is prepended as int32 (big
+endian) before each message/packet.
 
 OSC-packets come in two kinds:
-- OSC-messages consist of an 'address'-string (not to be confused with a (host:port) network-address!),
-followed by a string of 'typetags' associated with the message's arguments (ie. 'payload'), 
-and finally the arguments themselves, encoded in an OSC-specific way.
-The OSCMessage class makes it easy to create & manipulate OSC-messages of this kind in a 'pythonesque' way
-(that is, OSCMessage-objects behave a lot like lists)
 
-- OSC-bundles are a special type of OSC-message containing only OSC-messages as 'payload'. Recursively.
-(meaning; an OSC-bundle could contain other OSC-bundles, containing OSC-bundles etc.)
-OSC-bundles start with the special keyword '#bundle' and do not have an OSC-address. (but the OSC-messages 
-a bundle contains will have OSC-addresses!)
-Also, an OSC-bundle can have a timetag, essentially telling the receiving Server to 'hold' the bundle until
-the specified time.
-The OSCBundle class allows easy cration & manipulation of OSC-bundles.
+	- OSC-messages consist of an 'address'-string (not to be confused with a
+	(host:port) network-address!), followed by a string of 'typetags'
+	associated with the message's arguments (ie. 'payload'), and finally the
+	arguments themselves, encoded in an OSC-specific way. The OSCMessage class
+	makes it easy to create & manipulate OSC-messages of this kind in a
+	'pythonesque' way (that is, OSCMessage-objects behave a lot like lists)
+
+	- OSC-bundles are a special type of OSC-message containing only
+	OSC-messages as 'payload'. Recursively. (meaning; an OSC-bundle could
+	contain other OSC-bundles, containing OSC-bundles etc.)
 	
-see also http://opensoundcontrol.org/spec-1_0
+OSC-bundles start with the special keyword '#bundle' and do not have an
+OSC-address (but the OSC-messages a bundle contains will have OSC-addresses!).
+Also, an OSC-bundle can have a timetag, essentially telling the receiving
+server to 'hold' the bundle until the specified time. The OSCBundle class
+allows easy cration & manipulation of OSC-bundles.
+	
+For further information see also http://opensoundcontrol.org/spec-1_0
 
----------
+-------------------------------------------------------------------------------
 
-To send OSC-messages, you need an OSCClient, and to receive OSC-messages you need an OSCServer.
+To send OSC-messages, you need an OSCClient, and to receive OSC-messages you
+need an OSCServer.
 
-The OSCClient uses an 'AF_INET / SOCK_DGRAM' type socket (see the 'socket' module) to send 
-binary representations of OSC-messages to a remote host:port address.
+The OSCClient uses an 'AF_INET / SOCK_DGRAM' type socket (see the 'socket'
+module) to send binary representations of OSC-messages to a remote host:port
+address.
 
-The OSCServer listens on an 'AF_INET / SOCK_DGRAM' type socket bound to a local port, and handles
-incoming requests. Either one-after-the-other (OSCServer) or in a multi-threaded / multi-process fashion 
-(ThreadingOSCServer / ForkingOSCServer). If the Server has a callback-function (a.k.a. handler) registered
-to 'deal with' (i.e. handle) the received message's OSC-address, that function is called, passing it the (decoded) message
+The OSCServer listens on an 'AF_INET / SOCK_DGRAM' type socket bound to a local
+port, and handles incoming requests. Either one-after-the-other (OSCServer) or
+in a multi-threaded / multi-process fashion (ThreadingOSCServer/
+ForkingOSCServer). If the Server has a callback-function (a.k.a. handler)
+registered to 'deal with' (i.e. handle) the received message's OSC-address,
+that function is called, passing it the (decoded) message.
 
-The different OSCServers implemented here all support the (recursive) un-bundling of OSC-bundles,
-and OSC-bundle timetags.
+The different OSCServers implemented here all support the (recursive) un-
+bundling of OSC-bundles, and OSC-bundle timetags.
 
 In fact, this implementation supports:
 
-- OSC-messages with 'i' (int32), 'f' (float32), 's' (string) and 'b' (blob / binary data) types
-- OSC-bundles, including timetag-support
-- OSC-address patterns including '*', '?', '{,}' and '[]' wildcards.
+	- OSC-messages with 'i' (int32), 'f' (float32), 'd' (double), 's' (string) and
+	'b' (blob / binary data) types
+	- OSC-bundles, including timetag-support
+	- OSC-address patterns including '*', '?', '{,}' and '[]' wildcards.
 
-(please *do* read the OSC-spec! http://opensoundcontrol.org/spec-1_0 it explains what these things mean.) 
+(please *do* read the OSC-spec! http://opensoundcontrol.org/spec-1_0 it
+explains what these things mean.)
 
 In addition, the OSCMultiClient supports:
-- Sending a specific OSC-message to multiple remote servers
-- Remote server subscription / unsubscription (through OSC-messages, of course)
-- Message-address filtering.
+	- Sending a specific OSC-message to multiple remote servers
+	- Remote server subscription / unsubscription (through OSC-messages, of course)
+	- Message-address filtering.
 
----------
+-------------------------------------------------------------------------------
+SimpleOSC:
+	Copyright (c) Daniel Holth & Clinton McChesney.
+pyOSC:
+	Copyright (c) 2008-2010, Artem Baguinski <artm@v2.nl> et al., Stock, V2_Lab, Rotterdam, Netherlands.
+Streaming support (OSC over TCP):
+	Copyright (c) 2010 Uli Franke <uli.franke@weiss.ch>, Weiss Engineering, Uster, Switzerland.
 
-Stock, V2_Lab, Rotterdam, 2008
-
-----------
+-------------------------------------------------------------------------------
 Changelog:
-----------
+-------------------------------------------------------------------------------
 v0.3.0	- 27 Dec. 2007
 	Started out to extend the 'SimpleOSC' implementation (v0.2.3) by Daniel Holth & Clinton McChesney.
 	Rewrote OSCMessage
@@ -100,10 +117,16 @@ v0.3.4	- 13 Jan. 2008
 v0.3.5 - 14 aug. 2008
 	Added OSCServer.reportErr(...) method
 
+v0.3.6 - 19 April 2010
+	Added Streaming support (OSC over TCP)
+	Updated documentation
+	Moved pattern matching stuff into separate class (OSCAddressSpace) to
+		facilitate implementation of different server and client architectures
+	Moved testing code into separate testbench (testbench.py)
+
 -----------------
 Original Comments
 -----------------
-
 > Open SoundControl for Python
 > Copyright (C) 2002 Daniel Holth, Clinton McChesney
 > 
@@ -116,14 +139,14 @@ Original Comments
 > WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
 > PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more
 > details.
-
+>
 > You should have received a copy of the GNU Lesser General Public License along
 > with this library; if not, write to the Free Software Foundation, Inc., 59
 > Temple Place, Suite 330, Boston, MA  02111-1307  USA
-
+>
 > For questions regarding this module contact Daniel Holth <dholth@stetson.edu>
 > or visit http://www.stetson.edu/~ProctoLogic/
-
+>
 > Changelog:
 > 15 Nov. 2001:
 > 	Removed dependency on Python 2.0 features.
@@ -133,11 +156,11 @@ Original Comments
 > 	- dwh
 """
 
-import math, re, socket, select, string, struct, sys, threading, time, types
-from SocketServer import UDPServer, DatagramRequestHandler, ForkingMixIn, ThreadingMixIn
+import math, re, socket, select, string, struct, sys, threading, time, types, array
+from SocketServer import UDPServer, DatagramRequestHandler, ForkingMixIn, ThreadingMixIn, StreamRequestHandler, TCPServer
 
 global version
-version = ("0.3","5b", "$Rev: 6382 $"[6:-2])
+version = ("0.3","6", "$Rev: 6382 $"[6:-2])
 
 global FloatTypes
 FloatTypes = [types.FloatType]
@@ -746,7 +769,7 @@ def OSCTimeTag(time):
 	"""
 	if time > 0:
 		fract, secs = math.modf(time)
-                secs = secs - NTP_epoch
+		secs = secs - NTP_epoch
 		binary = struct.pack('>LL', long(secs), long(fract * NTP_units_per_second))
 	else:
 		binary = struct.pack('>LL', 0L, 1L)
@@ -843,7 +866,7 @@ def _readDouble(data):
 def decodeOSC(data):
 	"""Converts a binary OSC message to a Python list. 
 	"""
-        table = {"i":_readInt, "f":_readFloat, "s":_readString, "b":_readBlob, "d":_readDouble, "t":_readTimeTag}
+	table = {"i":_readInt, "f":_readFloat, "s":_readString, "b":_readBlob, "d":_readDouble, "t":_readTimeTag}
 	decoded = []
 	address,  rest = _readString(data)
 	if address.startswith(","):
@@ -889,7 +912,7 @@ def hexDump(bytes):
 	num = len(bytes)
 	for i in range(num):
 		if (i) % 16 == 0:
-			 line = "%02X0 : " % (i/16)
+			line = "%02X0 : " % (i/16)
 		line += "%02X " % ord(bytes[i])
 		if (i+1) % 16 == 0:
 			print "%s: %s" % (line, repr(bytes[i-15:i+1]))
@@ -1632,16 +1655,39 @@ class OSCMultiClient(OSCClient):
 				else:
 					raise OSCClientError("while sending to %s: %s" % (str(address), str(e)))
 
-######
-#
-# OSCRequestHandler classes
-#
-######
-
-class OSCRequestHandler(DatagramRequestHandler):
-	"""RequestHandler class for the OSCServer
-	"""
-	def dispatchMessage(self, pattern, tags, data):
+class OSCAddressSpace:
+	def __init__(self):
+		self.callbacks = {}
+	def addMsgHandler(self, address, callback):
+		"""Register a handler for an OSC-address
+		  - 'address' is the OSC address-string. 
+		the address-string should start with '/' and may not contain '*'
+		  - 'callback' is the function called for incoming OSCMessages that match 'address'.
+		The callback-function will be called with the same arguments as the 'msgPrinter_handler' below
+		"""
+		for chk in '*?,[]{}# ':
+			if chk in address:
+				raise OSCServerError("OSC-address string may not contain any characters in '*?,[]{}# '")
+		
+		if type(callback) not in (types.FunctionType, types.MethodType):
+			raise OSCServerError("Message callback '%s' is not callable" % repr(callback))
+		
+		if address != 'default':
+			address = '/' + address.strip('/')
+			
+		self.callbacks[address] = callback
+		
+	def delMsgHandler(self, address):
+		"""Remove the registered handler for the given OSC-address
+		"""
+		del self.callbacks[address]
+	
+	def getOSCAddressSpace(self):
+		"""Returns a list containing all OSC-addresses registerd with this Server. 
+		"""
+		return self.callbacks.keys()
+	
+	def dispatchMessage(self, pattern, tags, data, client_address):
 		"""Attmept to match the given OSC-address pattern, which may contain '*',
 		against all callbacks registered with the OSCServer.
 		Calls the matching callback and returns whatever it returns.
@@ -1659,10 +1705,10 @@ class OSCRequestHandler(DatagramRequestHandler):
 		
 		replies = []
 		matched = 0
-		for addr in self.server.callbacks.keys():
+		for addr in self.callbacks.keys():
 			match = expr.match(addr)
 			if match and (match.end() == len(addr)):
-				reply = self.server.callbacks[addr](pattern, tags, data, self.client_address)
+				reply = self.callbacks[addr](pattern, tags, data, client_address)
 				matched += 1
 				if isinstance(reply, OSCMessage):
 					replies.append(reply)
@@ -1670,8 +1716,8 @@ class OSCRequestHandler(DatagramRequestHandler):
 					raise TypeError("Message-callback %s did not return OSCMessage or None: %s" % (self.server.callbacks[addr], type(reply)))
 					
 		if matched == 0:
-			if 'default' in self.server.callbacks:
-				reply = self.server.callbacks['default'](pattern, tags, data, self.client_address)
+			if 'default' in self.callbacks:
+				reply = self.callbacks['default'](pattern, tags, data, client_address)
 				if isinstance(reply, OSCMessage):
 					replies.append(reply)
 				elif reply != None:
@@ -1680,7 +1726,15 @@ class OSCRequestHandler(DatagramRequestHandler):
 				raise NoCallbackError(pattern)
 		
 		return replies
-		
+
+######
+#
+# OSCRequestHandler classes
+#
+######
+class OSCRequestHandler(DatagramRequestHandler):
+	"""RequestHandler class for the OSCServer
+	"""
 	def setup(self):
 		"""Prepare RequestHandler.
 		Unpacks request as (packet, source socket address)
@@ -1692,7 +1746,7 @@ class OSCRequestHandler(DatagramRequestHandler):
 	def _unbundle(self, decoded):
 		"""Recursive bundle-unpacking function"""
 		if decoded[0] != "#bundle":
-			self.replies += self.dispatchMessage(decoded[0], decoded[1][1:], decoded[2:])
+			self.replies += self.server.dispatchMessage(decoded[0], decoded[1][1:], decoded[2:], self.client_address)
 			return
 		
 		now = time.time()
@@ -1741,7 +1795,7 @@ class ThreadingOSCRequestHandler(OSCRequestHandler):
 		then waits for all its children to finish.
 		"""
 		if decoded[0] != "#bundle":
-			self.replies += self.dispatchMessage(decoded[0], decoded[1][1:], decoded[2:])
+			self.replies += self.server.dispatchMessage(decoded[0], decoded[1][1:], decoded[2:], self.client_address)
 			return
 		
 		now = time.time()
@@ -1766,8 +1820,7 @@ class ThreadingOSCRequestHandler(OSCRequestHandler):
 # OSCServer classes
 #
 ######
-
-class OSCServer(UDPServer):
+class OSCServer(UDPServer, OSCAddressSpace):
 	"""A Synchronous OSCServer
 	Serves one request at-a-time, until the OSCServer is closed.
 	The OSC address-pattern is matched against a set of OSC-adresses
@@ -1795,8 +1848,8 @@ class OSCServer(UDPServer):
 		  for replies coming from this server.
 		"""
 		UDPServer.__init__(self, server_address, self.RequestHandlerClass)
+		OSCAddressSpace.__init__(self)
 		
-		self.callbacks = {}
 		self.setReturnPort(return_port)
 		self.error_prefix = ""
 		self.info_prefix = "/info"
@@ -1916,35 +1969,6 @@ class OSCServer(UDPServer):
 			pattern = '/' + pattern.strip('/')
 		
 		self.error_prefix = pattern
-
-	def addMsgHandler(self, address, callback):
-		"""Register a handler for an OSC-address
-		  - 'address' is the OSC address-string. 
-		the address-string should start with '/' and may not contain '*'
-		  - 'callback' is the function called for incoming OSCMessages that match 'address'.
-		The callback-function will be called with the same arguments as the 'msgPrinter_handler' below
-		"""
-		for chk in '*?,[]{}# ':
-			if chk in address:
-				raise OSCServerError("OSC-address string may not contain any characters in '*?,[]{}# '")
-		
-		if type(callback) not in (types.FunctionType, types.MethodType):
-			raise OSCServerError("Message callback '%s' is not callable" % repr(callback))
-		
-		if address != 'default':
-			address = '/' + address.strip('/')
-			
-		self.callbacks[address] = callback
-		
-	def delMsgHandler(self,address):
-		"""Remove the registered handler for the given OSC-address
-		"""
-		del self.callbacks[address]
-	
-	def getOSCAddressSpace(self):
-		"""Returns a list containing all OSC-addresses registerd with this Server. 
-		"""
-		return self.callbacks.keys()
 	
 	def addDefaultHandlers(self, prefix="", info_prefix="/info", error_prefix="/error"):
 		"""Register a default set of OSC-address handlers with this Server:
@@ -2352,3 +2376,241 @@ class NotSubscribedError(OSCClientError):
 
 		self.message = "Target osc://%s is not subscribed" % url			
 
+######
+#
+# OSC over streaming transport layers (usually TCP) 
+#
+######
+
+def OSCStreamMessageSend(the_socket, msg):
+	"""Send an OSC message over a streaming socket.
+	"""
+	if not isinstance(msg, OSCMessage):
+		raise TypeError("'msg' argument is not an OSCMessage or OSCBundle object")
+
+	try:
+		binary = msg.getBinary()
+		length = len(binary)
+		# prepend length of packet before the actual message (big endian)
+		len_big_endian = array.array('c', '\0' * 4)
+		struct.pack_into(">L", len_big_endian, 0, length)
+		len_big_endian = len_big_endian.tostring()
+		sent = 0
+		while sent < 4:
+			sent += the_socket.send(len_big_endian[sent:])
+		
+		sent = 0
+		while length-sent > 0:
+			sent += the_socket.send(binary[sent:])
+
+	except socket.error, e:
+		raise e
+
+def OSCStreamMessageReceive(the_socket, who = ""):
+	""" Receive OSC message from a socket and decode.
+	If an error occurs, None is returned, else the message
+	"""
+	# get OSC packet size from stream which is prepended each transmission
+	chunk = the_socket.recv(4)
+	while len(chunk) < 4:
+		chunk = chunk + the_socket.recv(4 - len(chunk))
+	if not chunk:
+		print who, "OSCStreamMessageReceive: Socket has been closed."
+		return None
+		
+	# big endian unsigned long (32 bit) 
+	slen = struct.unpack(">L", chunk)[0]
+	# receive until we have the whole message
+	chunk = the_socket.recv(slen)
+	while len(chunk) < slen:
+		chunk = chunk + the_socket.recv(slen - len(chunk))
+
+	msg = decodeOSC(chunk)
+	if msg == None:
+		raise OSCServerError("%s OSCStreamMessageReceive: Message decoding failed.", who)
+	
+	return msg
+				
+class OSCStreamRequestHandler(StreamRequestHandler):
+
+	def _unbundle(self, decoded):
+		"""Recursive bundle-unpacking function"""
+		if decoded[0] != "#bundle":
+			self.replies += self.server.dispatchMessage(decoded[0], decoded[1][1:], decoded[2:], self.client_address)
+			return
+		
+		now = time.time()
+		timetag = decoded[1]
+		if (timetag > 0.) and (timetag > now):
+			time.sleep(timetag - now)
+		
+		for msg in decoded[2:]:
+			self._unbundle(msg)
+	
+	def handle(self):
+		"""
+		Handle a connection.
+		"""
+		print "SERVER: Entered server loop"
+		try:
+			while True:
+				decoded = OSCStreamMessageReceive(self.connection, "SERVER")
+				if decoded == None:
+					return
+				elif len(decoded) <= 0:
+					# if message decoding fails we try to stay in sync but print a message
+					print "OSC stream server: Spurious message received."
+					continue
+
+				self.replies = []
+				self._unbundle(decoded)
+
+				if len(self.replies) > 1:
+					msg = OSCBundle()
+					for reply in self.replies:
+						msg.append(reply)
+				elif len(self.replies) == 1:
+					msg = self.replies[0]
+				else:
+					# no replies, continue receiving
+					continue
+				OSCStreamMessageSend(self.connection, msg)
+		
+		except socket.error, e:
+			raise e
+
+""" TODO Note on threaded unbundling for streaming (connection oriented)
+transport:
+
+Threaded unbundling as implemented in ThreadingOSCServer must be implemented in
+a different way for the streaming variant, because contrary to the datagram
+version the streaming handler is instantiated only once per connection. This
+leads to the problem (if threaded unbundling is implemented as in OSCServer)
+that all further message reception is blocked until all (previously received)
+pending messages are processed.
+
+Each StreamRequestHandler should provide a so called processing queue in which
+all pending messages or subbundles are inserted to be processed in the future).
+When a subbundle or message gets queued, a mechanism must be provided that
+those messages get invoked when time asks for them. There are the following
+opportunities:
+	- a timer is started which checks at regular intervals for messages in the
+	queue (polling - requires CPU resources)
+	- a dedicated timer is started for each message (requires timer resources)
+"""
+
+class OSCStreamingServer(TCPServer, OSCAddressSpace):
+	""" A connection oriented (TCP/IP) OSC server.
+	""" 
+	RequestHandlerClass = OSCStreamRequestHandler
+	def __init__(self, address):
+		"""Instantiate an OSCServer.
+		  - server_address ((host, port) tuple): the local host & UDP-port
+		  the server listens on
+		"""
+		TCPServer.__init__(self, address, self.RequestHandlerClass)
+		OSCAddressSpace.__init__(self)
+
+class OSCStreamingClient(OSCAddressSpace):
+	""" OSC streaming client.
+	A streaming client establishes a connection to a streaming server but must
+	be able to handle replies by the server as well. To accomplish this the
+	receiving takes place in a secondary thread, because no one knows if we
+	have to expect a reply or not, i.e. synchronous architecture doesn't make
+	much sense.
+	Replies will be matched against the local address space. If message
+	handlers access code of the main thread (where the client messages are sent
+	to the server) care must be taken e.g. by installing sychronization
+	mechanisms or by using an event dispatcher which can handle events
+	originating from other threads. 
+	"""
+	# set outgoing socket buffer size
+	sndbuf_size = 4096 * 8
+	rcvbuf_size = 4096 * 8
+
+	def __init__(self):
+		OSCAddressSpace.__init__(self)
+		self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, self.sndbuf_size)
+		self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, self.rcvbuf_size)
+
+	def _receiving_thread_entry(self):
+		print "CLIENT: Entered receiving thread."
+		try:
+			while True:
+				decoded = OSCStreamMessageReceive(self.socket, "CLIENT")
+				if decoded == None:
+					return
+				elif len(decoded) <= 0:
+					continue
+				
+				self.replies = []
+				self._unbundle(decoded)
+				if len(self.replies) > 1:
+					msg = OSCBundle()
+					for reply in self.replies:
+						msg.append(reply)
+				elif len(self.replies) == 1:
+					msg = self.replies[0]
+				else:
+					continue
+				OSCStreamMessageSend(self.socket, msg)
+		
+		except socket.error, e:
+			raise e
+		
+	def _unbundle(self, decoded):
+		if decoded[0] != "#bundle":
+			self.replies += self.dispatchMessage(decoded[0], decoded[1][1:], decoded[2:], self.socket.getpeername())
+			return
+		
+		now = time.time()
+		timetag = decoded[1]
+		if (timetag > 0.) and (timetag > now):
+			time.sleep(timetag - now)
+		
+		for msg in decoded[2:]:
+			self._unbundle(msg)
+
+	def connect(self, address):
+		self.socket.connect(address)
+		self.receiving_thread = threading.Thread(target=self._receiving_thread_entry)
+		self.receiving_thread.start()
+		
+	def close(self):
+		self.socket.close()
+		self.receiving_thread.join()
+
+	def sendOSC(self, msg):
+		OSCStreamMessageSend(self.socket, msg)
+		
+	def __str__(self):
+		"""Returns a string containing this Client's Class-name, software-version
+		and the remote-address it is connected to (if any)
+		"""
+		out = self.__class__.__name__
+		out += " v%s.%s-%s" % version
+		addr = self.socket.getpeername()
+		if addr:
+			out += " connected to osc://%s" % getUrlStr(addr)
+		else:
+			out += " (unconnected)"
+	
+		return out
+
+	def __eq__(self, other):
+		"""Compare function.
+		"""
+		if not isinstance(other, self.__class__):
+			return False
+			
+		isequal = cmp(self.socket._sock, other.socket._sock)
+		if isequal and self.server and other.server:
+			return cmp(self.server, other.server)
+		
+		return isequal
+	
+	def __ne__(self, other):
+		"""Compare function.
+		"""
+		return not self.__eq__(other)
