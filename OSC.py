@@ -121,7 +121,9 @@ v0.3.6 - 19 April 2010
 	Added Streaming support (OSC over TCP)
 	Updated documentation
 	Moved pattern matching stuff into separate class (OSCAddressSpace) to
-		facilitate implementation of different server and client architectures
+		facilitate implementation of different server and client architectures.
+		Callbacks feature now a context (object oriented) but dynamic function
+		inspection keeps the code backward compatible
 	Moved testing code into separate testbench (testbench.py)
 
 -----------------
@@ -156,8 +158,9 @@ Original Comments
 > 	- dwh
 """
 
-import math, re, socket, select, string, struct, sys, threading, time, types, array
+import math, re, socket, select, string, struct, sys, threading, time, types, array, errno, inspect
 from SocketServer import UDPServer, DatagramRequestHandler, ForkingMixIn, ThreadingMixIn, StreamRequestHandler, TCPServer
+from contextlib import closing
 
 global version
 version = ("0.3","6", "$Rev: 6382 $"[6:-2])
@@ -1708,7 +1711,11 @@ class OSCAddressSpace:
 		for addr in self.callbacks.keys():
 			match = expr.match(addr)
 			if match and (match.end() == len(addr)):
-				reply = self.callbacks[addr](pattern, tags, data, client_address)
+				callback = self.callbacks[addr]
+				if len(inspect.getargspec(callback).args) == 5:
+					reply = callback(self, pattern, tags, data, client_address)
+				else:
+					reply = callback(pattern, tags, data, client_address)
 				matched += 1
 				if isinstance(reply, OSCMessage):
 					replies.append(reply)
@@ -1717,7 +1724,11 @@ class OSCAddressSpace:
 					
 		if matched == 0:
 			if 'default' in self.callbacks:
-				reply = self.callbacks['default'](pattern, tags, data, client_address)
+				callback = self.callbacks['default']
+				if len(inspect.getargspec(callback).args) == 5:
+					reply = callback(self, pattern, tags, data, client_address)
+				else:
+					reply = callback(pattern, tags, data, client_address)
 				if isinstance(reply, OSCMessage):
 					replies.append(reply)
 				elif reply != None:
@@ -2383,7 +2394,9 @@ class NotSubscribedError(OSCClientError):
 ######
 
 def OSCStreamMessageSend(the_socket, msg):
-	"""Send an OSC message over a streaming socket.
+	"""Send an OSC message over a streaming socket. Raises exception if it
+	should fail. If everything is transmitted properly, True is returned. If
+	socket has been closed, False.
 	"""
 	if not isinstance(msg, OSCMessage):
 		raise TypeError("'msg' argument is not an OSCMessage or OSCBundle object")
@@ -2397,37 +2410,57 @@ def OSCStreamMessageSend(the_socket, msg):
 		len_big_endian = len_big_endian.tostring()
 		sent = 0
 		while sent < 4:
-			sent += the_socket.send(len_big_endian[sent:])
+			tmp = the_socket.send(len_big_endian[sent:])
+			if tmp == 0:
+				return False
+			sent += tmp
 		
 		sent = 0
-		while length-sent > 0:
-			sent += the_socket.send(binary[sent:])
+		while length - sent > 0:
+			tmp = the_socket.send(binary[sent:])
+			if tmp == 0:
+				return False
+			sent += tmp
 
 	except socket.error, e:
+		if e[0] == errno.EPIPE: # broken pipe
+			return False
 		raise e
+	return True
+
+def SocketReceive(socket, count):
+	chunk = socket.recv(count)
+	if not chunk or len(chunk) == 0:
+		return None
+	while len(chunk) < count:
+		tmp = socket.recv(count - len(chunk))
+		if not tmp or len(tmp) == 0:
+			return None
+		chunk = chunk + tmp
+	return chunk
 
 def OSCStreamMessageReceive(the_socket, who = ""):
 	""" Receive OSC message from a socket and decode.
-	If an error occurs, None is returned, else the message
+	If an error occurs, None is returned, else the message.
 	"""
 	# get OSC packet size from stream which is prepended each transmission
-	chunk = the_socket.recv(4)
-	while len(chunk) < 4:
-		chunk = chunk + the_socket.recv(4 - len(chunk))
-	if not chunk:
+	chunk = SocketReceive(the_socket, 4)
+	if chunk == None:
 		print who, "OSCStreamMessageReceive: Socket has been closed."
 		return None
 		
-	# big endian unsigned long (32 bit) 
+	# extract message length from big endian unsigned long (32 bit) 
 	slen = struct.unpack(">L", chunk)[0]
-	# receive until we have the whole message
-	chunk = the_socket.recv(slen)
-	while len(chunk) < slen:
-		chunk = chunk + the_socket.recv(slen - len(chunk))
+	
+	# receive the actual message
+	chunk = SocketReceive(the_socket, slen)
+	if chunk == None:
+		print who, "OSCStreamMessageReceive: Socket has been closed."
+		return None
 
 	msg = decodeOSC(chunk)
 	if msg == None:
-		raise OSCServerError("%s OSCStreamMessageReceive: Message decoding failed.", who)
+		raise OSCError("%s OSCStreamMessageReceive: Message decoding failed.", who)
 	
 	return msg
 				
@@ -2474,7 +2507,8 @@ class OSCStreamRequestHandler(StreamRequestHandler):
 				else:
 					# no replies, continue receiving
 					continue
-				OSCStreamMessageSend(self.connection, msg)
+				if not OSCStreamMessageSend(self.connection, msg):
+					break
 		
 		except socket.error, e:
 			raise e
@@ -2510,6 +2544,18 @@ class OSCStreamingServer(TCPServer, OSCAddressSpace):
 		"""
 		TCPServer.__init__(self, address, self.RequestHandlerClass)
 		OSCAddressSpace.__init__(self)
+	def close(self):
+		"""Closes server socket
+		"""
+		self.server_close()
+		self.shutdown()
+		
+class OSCStreamingServerThreading(ThreadingMixIn, OSCStreamingServer):
+	pass
+	""" Implements a server which spawns a separate thread for each incoming
+	connection. Care must be taken since the OSC address space is for all
+	the same. 
+	"""
 
 class OSCStreamingClient(OSCAddressSpace):
 	""" OSC streaming client.
@@ -2536,28 +2582,25 @@ class OSCStreamingClient(OSCAddressSpace):
 
 	def _receiving_thread_entry(self):
 		print "CLIENT: Entered receiving thread."
-		try:
-			while True:
-				decoded = OSCStreamMessageReceive(self.socket, "CLIENT")
-				if decoded == None:
-					return
-				elif len(decoded) <= 0:
-					continue
-				
-				self.replies = []
-				self._unbundle(decoded)
-				if len(self.replies) > 1:
-					msg = OSCBundle()
-					for reply in self.replies:
-						msg.append(reply)
-				elif len(self.replies) == 1:
-					msg = self.replies[0]
-				else:
-					continue
-				OSCStreamMessageSend(self.socket, msg)
 		
-		except socket.error, e:
-			raise e
+		while True:
+			decoded = OSCStreamMessageReceive(self.socket, "CLIENT")
+			if decoded == None:
+				return
+			elif len(decoded) <= 0:
+				continue
+			
+			self.replies = []
+			self._unbundle(decoded)
+			if len(self.replies) > 1:
+				msg = OSCBundle()
+				for reply in self.replies:
+					msg.append(reply)
+			elif len(self.replies) == 1:
+				msg = self.replies[0]
+			else:
+				continue
+			OSCStreamMessageSend(self.socket, msg)
 		
 	def _unbundle(self, decoded):
 		if decoded[0] != "#bundle":
@@ -2578,6 +2621,7 @@ class OSCStreamingClient(OSCAddressSpace):
 		self.receiving_thread.start()
 		
 	def close(self):
+		self.socket.shutdown(socket.SHUT_RDWR)
 		self.socket.close()
 		self.receiving_thread.join()
 
