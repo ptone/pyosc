@@ -2476,6 +2476,13 @@ class OSCStreamRequestHandler(StreamRequestHandler):
 		"""
 		Handle a connection.
 		"""
+		# set socket blocking to avoid "resource currently not available"
+		# exceptions, because the connection socket inherits the settings
+		# from the listening socket and this times out from time to time
+		# in order to provide a way to shut the server down. But we want
+		# clean and blocking behaviour here
+		self.connection.settimeout(None)
+		
 		print "SERVER: Entered server loop"
 		try:
 			while True:

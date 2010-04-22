@@ -138,18 +138,21 @@ def testStreamingServerAndClient(listen_address):
 	c.sendOSC(bb)
 	time.sleep(0.1)
 	
-	# we let the server run autonomously 
-	count = 6
-	while s.run :
-		time.sleep(1)
-		msg = OSCMessage("/print")
-		msg.append(count)
-		c.sendOSC(msg)
-		count -= 1
-		if count == 0:
-			# send termination message (test context message handlers)
-			msg = OSCMessage("/exit")
+	try:
+		# we let the server run autonomously for some seconds
+		count = 6
+		while s.run :
+			time.sleep(1)
+			msg = OSCMessage("/print")
+			msg.append(count)
 			c.sendOSC(msg)
+			count -= 1
+			if count == 0:
+				# send termination message (test context message handlers)
+				msg = OSCMessage("/exit")
+				c.sendOSC(msg)
+	except KeyboardInterrupt:
+		print "Interrupted."
 			
 	print "Closing client"
 	c.close()
