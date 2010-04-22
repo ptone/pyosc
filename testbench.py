@@ -37,7 +37,7 @@ def testStreamingServerAndClient(listen_address):
 	print "\nInstantiating OSCStreamingServer:"
 	
 	# define a message-handler function for the server to call.
-	def printing_handler(server, addr, tags, stuff, source):
+	def printing_handler(addr, tags, stuff, source):
 		msg_string = "%s [%s] %s" % (addr, tags, str(stuff))
 		msg_string = "SERVER: Got '%s' from %s\n" % (msg_string, getUrlStr(source))
 		print msg_string
@@ -48,27 +48,29 @@ def testStreamingServerAndClient(listen_address):
 		return msg
 
 	# define a message-handler function for the server to call.
-	def info_handler(server, addr, tags, stuff, source):
+	def info_handler(addr, tags, stuff, source):
 		print "SERVER: Info ", addr
 		
-	def default_handler(server, addr, tags, stuff, source):
+	def default_handler(addr, tags, stuff, source):
 		print "SERVER: No handler registered for ", addr
 		return None
 
-	def exit_handler(server, addr, tags, stuff, source):
-		print "SERVER: EXIT ", addr
-		server.run = False
-		return None
 	
 	class DemoServer(OSCStreamingServerThreading):
-		run = True
+		def __init__(self, listen_address):
+			OSCStreamingServerThreading.__init__(self, listen_address)
+			self.run = True
+			self.addMsgHandler("/exit", self.exit_handler)
+		def exit_handler(self, addr, tags, stuff, source):
+			print "SERVER: EXIT ", addr
+			self.run = False
+			return None
 	s = DemoServer(listen_address)
 	print s
 
 	s.addMsgHandler("/print", printing_handler)
 	s.addMsgHandler("/info", info_handler)
 	s.addMsgHandler("default", default_handler)
-	s.addMsgHandler("/exit", exit_handler)
 	
 	print "Registered Callback-functions:"
 	for addr in s.getOSCAddressSpace():
@@ -82,7 +84,7 @@ def testStreamingServerAndClient(listen_address):
 	
 	# Instantiate OSCClient
 	print "Instantiating OSCStreamingClient:"
-	def printed_handler(client, addr, tags, stuff, source):
+	def printed_handler(addr, tags, stuff, source):
 		print "CLIENT: Printed Handler: ", addr
 		
 	c = OSCStreamingClient()

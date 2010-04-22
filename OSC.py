@@ -1711,11 +1711,7 @@ class OSCAddressSpace:
 		for addr in self.callbacks.keys():
 			match = expr.match(addr)
 			if match and (match.end() == len(addr)):
-				callback = self.callbacks[addr]
-				if len(inspect.getargspec(callback).args) == 5:
-					reply = callback(self, pattern, tags, data, client_address)
-				else:
-					reply = callback(pattern, tags, data, client_address)
+				reply = self.callbacks[addr](pattern, tags, data, client_address)
 				matched += 1
 				if isinstance(reply, OSCMessage):
 					replies.append(reply)
@@ -1724,11 +1720,7 @@ class OSCAddressSpace:
 					
 		if matched == 0:
 			if 'default' in self.callbacks:
-				callback = self.callbacks['default']
-				if len(inspect.getargspec(callback).args) == 5:
-					reply = callback(self, pattern, tags, data, client_address)
-				else:
-					reply = callback(pattern, tags, data, client_address)
+				reply = self.callbacks['default'](pattern, tags, data, client_address)
 				if isinstance(reply, OSCMessage):
 					replies.append(reply)
 				elif reply != None:
@@ -2534,6 +2526,10 @@ opportunities:
 """
 
 class OSCStreamingServer(TCPServer, OSCAddressSpace):
+	# define a socket timeout, so the serve_forever loop can actually exit.
+	# with 2.6 and server.shutdown this wouldn't be necessary
+	socket_timeout = 1
+
 	""" A connection oriented (TCP/IP) OSC server.
 	""" 
 	RequestHandlerClass = OSCStreamRequestHandler
@@ -2544,11 +2540,21 @@ class OSCStreamingServer(TCPServer, OSCAddressSpace):
 		"""
 		TCPServer.__init__(self, address, self.RequestHandlerClass)
 		OSCAddressSpace.__init__(self)
-	def close(self):
-		"""Closes server socket
+		self.socket.settimeout(self.socket_timeout)
+	def serve_forever(self):
+		"""Handle one request at a time until server is closed.
+		Had to add this since 2.5 does not support server.shutdown()
 		"""
+		self.running = True
+		while self.running:
+			self.handle_request()	# this times-out when no data arrives.
+	def close(self):
+		"""Closes server socket and shuts down server thread
+		"""
+		self.running = False
 		self.server_close()
-		self.shutdown()
+		# 2.6 only
+		#self.shutdown()
 		
 class OSCStreamingServerThreading(ThreadingMixIn, OSCStreamingServer):
 	pass
