@@ -2635,8 +2635,8 @@ class OSCStreamingClient(OSCAddressSpace):
 		
 	def close(self):
 		self.socket.shutdown(socket.SHUT_RDWR)
-		self.socket.close()
 		self.receiving_thread.join()
+		self.socket.close()
 
 	def sendOSC(self, msg):
 		OSCStreamMessageSend(self.socket, msg)
