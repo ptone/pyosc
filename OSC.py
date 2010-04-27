@@ -2421,6 +2421,9 @@ def OSCStreamMessageSend(the_socket, msg):
 	return True
 
 def SocketReceive(socket, count):
+	""" Receive a certain amount of data from the socket and return it. If the
+	remote end should be closed in the meanwhile None is returned.
+	"""
 	chunk = socket.recv(count)
 	if not chunk or len(chunk) == 0:
 		return None
@@ -2456,12 +2459,34 @@ def OSCStreamMessageReceive(the_socket, who = ""):
 	
 	return msg
 				
-class OSCStreamRequestHandler(StreamRequestHandler):
-
+class OSCStreamRequestHandler(StreamRequestHandler, OSCAddressSpace):
+	""" This is the central class of a streaming OSC server. If a client
+	connects to the server, the server instantiates a OSCStreamRequestHandler
+	for each new connection. This is fundamentally different to a packet
+	oriented server which has a single address space for all connections.
+	This connection based (streaming) OSC server maintains an address space
+	for each single connection, because usually tcp server spawn a new thread
+	or process for each new connection. This would generate severe
+	multithreading synchronization problems when each thread would operate on
+	the same address space object. Therefore: To implement a streaming/TCP OSC
+	server a custom handler must be implemented which implements the
+	setupAddressSpace member in which it creates its own address space for this
+	very connection. This has been done within the testbench and can serve as
+	inspiration.
+	"""
+	def __init__(self, request, client_address, server):
+		""" Initialize all base classes. The address space must be initialized
+		before the stream request handler because the initialization function
+		of the stream request handler calls the setup member which again
+		requires an already initialized address space.
+		""" 
+		OSCAddressSpace.__init__(self)
+		StreamRequestHandler.__init__(self, request, client_address, server)
+		
 	def _unbundle(self, decoded):
 		"""Recursive bundle-unpacking function"""
 		if decoded[0] != "#bundle":
-			self.replies += self.server.dispatchMessage(decoded[0], decoded[1][1:], decoded[2:], self.client_address)
+			self.replies += self.dispatchMessage(decoded[0], decoded[1][1:], decoded[2:], self.client_address)
 			return
 		
 		now = time.time()
@@ -2472,6 +2497,17 @@ class OSCStreamRequestHandler(StreamRequestHandler):
 		for msg in decoded[2:]:
 			self._unbundle(msg)
 	
+	def setup(self):
+		StreamRequestHandler.setup(self)
+		print "SERVER: New client connection."
+		self.setupAddressSpace()
+	def setupAddressSpace(self):
+		""" Override this function to customize your address space. """
+		return
+	def finish(self):
+		StreamRequestHandler.finish(self)
+		print "SERVER: Client connection handled."
+
 	def handle(self):
 		"""
 		Handle a connection.
@@ -2535,22 +2571,26 @@ opportunities:
 	- a dedicated timer is started for each message (requires timer resources)
 """
 
-class OSCStreamingServer(TCPServer, OSCAddressSpace):
+class OSCStreamingServer(TCPServer):
+	""" A connection oriented (TCP/IP) OSC server.
+	""" 
+	
 	# define a socket timeout, so the serve_forever loop can actually exit.
 	# with 2.6 and server.shutdown this wouldn't be necessary
 	socket_timeout = 1
-
-	""" A connection oriented (TCP/IP) OSC server.
-	""" 
+	
+	# this is the class which handles a new connection. Override this for a
+	# useful customized server. See the testbench for an example
 	RequestHandlerClass = OSCStreamRequestHandler
+	
 	def __init__(self, address):
-		"""Instantiate an OSCServer.
+		"""Instantiate an OSCStreamingServer.
 		  - server_address ((host, port) tuple): the local host & UDP-port
-		  the server listens on
+		  the server listens for new connections.
 		"""
 		TCPServer.__init__(self, address, self.RequestHandlerClass)
-		OSCAddressSpace.__init__(self)
 		self.socket.settimeout(self.socket_timeout)
+		
 	def serve_forever(self):
 		"""Handle one request at a time until server is closed.
 		Had to add this since 2.5 does not support server.shutdown()
@@ -2558,11 +2598,15 @@ class OSCStreamingServer(TCPServer, OSCAddressSpace):
 		self.running = True
 		while self.running:
 			self.handle_request()	# this times-out when no data arrives.
+			
 	def start(self):
+		""" Start the server thread. """
 		self._server_thread = threading.Thread(target=self.serve_forever)
 		self._server_thread.setDaemon(True)
 		self._server_thread.start()
+		
 	def stop(self):
+		""" Stop the server thread and close the socket. """
 		self.running = False
 		self._server_thread.join()
 		self.server_close()

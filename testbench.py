@@ -55,27 +55,36 @@ def testStreamingServerAndClient(listen_address):
 		print "SERVER: No handler registered for ", addr
 		return None
 
-	
+	class DemoOSCStreamRequestHandler(OSCStreamRequestHandler):
+		""" A basic OSC connection/stream handler. For each connection the
+		server instantiates a new object of this type. A reference to the
+		server is available under self.server but it must be payed attention
+		to multi threading design guide lines to avoid corrupted data and
+		race conditions (the shared variable in this example
+		"""
+		def setupAddressSpace(self):
+			self.addMsgHandler("/exit", self.exit_handler)
+			self.addMsgHandler("/print", printing_handler)
+			self.addMsgHandler("/info", info_handler)
+			self.addMsgHandler("default", default_handler)
+			print "SERVER: Address space:"
+			for addr in self.getOSCAddressSpace():
+				print addr
+			
+		def exit_handler(self, addr, tags, stuff, source):
+			print "SERVER: EXIT ", addr
+			self.server.run = False
+			return None
+
 	class DemoServer(OSCStreamingServerThreading):
+		RequestHandlerClass = DemoOSCStreamRequestHandler
 		def __init__(self, listen_address):
 			OSCStreamingServerThreading.__init__(self, listen_address)
 			self.run = True
-			self.addMsgHandler("/exit", self.exit_handler)
-		def exit_handler(self, addr, tags, stuff, source):
-			print "SERVER: EXIT ", addr
-			self.run = False
-			return None
+			
 	s = DemoServer(listen_address)
 	print s
 
-	s.addMsgHandler("/print", printing_handler)
-	s.addMsgHandler("/info", info_handler)
-	s.addMsgHandler("default", default_handler)
-	
-	print "Registered Callback-functions:"
-	for addr in s.getOSCAddressSpace():
-		print addr
-		
 	print "Starting ", s
 	s.start()
 	
