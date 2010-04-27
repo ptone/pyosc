@@ -2511,7 +2511,10 @@ class OSCStreamRequestHandler(StreamRequestHandler):
 		
 		except socket.error, e:
 			raise e
-
+		
+		# see http://homepage.mac.com/s_lott/iblog/architecture/C551260341/E20081031204203/index.html
+		time.sleep(0.01)
+		
 """ TODO Note on threaded unbundling for streaming (connection oriented)
 transport:
 
@@ -2555,10 +2558,13 @@ class OSCStreamingServer(TCPServer, OSCAddressSpace):
 		self.running = True
 		while self.running:
 			self.handle_request()	# this times-out when no data arrives.
-	def close(self):
-		"""Closes server socket and shuts down server thread
-		"""
+	def start(self):
+		self._server_thread = threading.Thread(target=self.serve_forever)
+		self._server_thread.setDaemon(True)
+		self._server_thread.start()
+	def stop(self):
 		self.running = False
+		self._server_thread.join()
 		self.server_close()
 		# 2.6 only
 		#self.shutdown()
@@ -2636,6 +2642,8 @@ class OSCStreamingClient(OSCAddressSpace):
 	def close(self):
 		self.socket.shutdown(socket.SHUT_RDWR)
 		self.receiving_thread.join()
+		# see http://homepage.mac.com/s_lott/iblog/architecture/C551260341/E20081031204203/index.html
+		time.sleep(0.01)
 		self.socket.close()
 
 	def sendOSC(self, msg):

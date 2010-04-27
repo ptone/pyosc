@@ -77,10 +77,7 @@ def testStreamingServerAndClient(listen_address):
 		print addr
 		
 	print "Starting ", s
-	st = threading.Thread(target=s.serve_forever)
-	# terminate thread when program exits
-	st.setDaemon(True)
-	st.start()
+	s.start()
 	
 	# Instantiate OSCClient
 	print "Instantiating OSCStreamingClient:"
@@ -156,10 +153,10 @@ def testStreamingServerAndClient(listen_address):
 			
 	print "Closing client"
 	c.close()
+	
 	print "Closing server"
-	s.close()
-	print "Waiting for server thread to finish"
-	st.join()
+	s.stop()
+	
 	print "Done. Arrivederci!"
 	sys.exit()
 			
