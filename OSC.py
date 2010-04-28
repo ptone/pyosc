@@ -2383,6 +2383,19 @@ class NotSubscribedError(OSCClientError):
 #
 # OSC over streaming transport layers (usually TCP) 
 #
+# Note from the OSC 1.0 specifications about streaming protocols:
+# 
+# The underlying network that delivers an OSC packet is responsible for
+# delivering both the contents and the size to the OSC application. An OSC
+# packet can be naturally represented by a datagram by a network protocol such
+# as UDP. In a stream-based protocol such as TCP, the stream should begin with
+# an int32 giving the size of the first packet, followed by the contents of the
+# first packet, followed by the size of the second packet, etc.
+# 
+# The contents of an OSC packet must be either an OSC Message or an OSC Bundle.
+# The first byte of the packet's contents unambiguously distinguishes between
+# these two alternatives.
+# 
 ######
 
 def OSCStreamMessageSend(the_socket, msg):
