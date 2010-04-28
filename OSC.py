@@ -2493,6 +2493,7 @@ class OSCStreamRequestHandler(StreamRequestHandler, OSCAddressSpace):
 		of the stream request handler calls the setup member which again
 		requires an already initialized address space.
 		""" 
+		self._txMutex = threading.Lock()
 		OSCAddressSpace.__init__(self)
 		StreamRequestHandler.__init__(self, request, client_address, server)
 		
@@ -2509,18 +2510,20 @@ class OSCStreamRequestHandler(StreamRequestHandler, OSCAddressSpace):
 		
 		for msg in decoded[2:]:
 			self._unbundle(msg)
-	
+			
 	def setup(self):
 		StreamRequestHandler.setup(self)
 		print "SERVER: New client connection."
 		self.setupAddressSpace()
+		
 	def setupAddressSpace(self):
 		""" Override this function to customize your address space. """
-		return
+		pass
+	
 	def finish(self):
 		StreamRequestHandler.finish(self)
 		print "SERVER: Client connection handled."
-
+		
 	def handle(self):
 		"""
 		Handle a connection.
@@ -2555,7 +2558,7 @@ class OSCStreamRequestHandler(StreamRequestHandler, OSCAddressSpace):
 				else:
 					# no replies, continue receiving
 					continue
-				if not OSCStreamMessageSend(self.connection, msg):
+				if not self.sendOSC(msg):
 					break
 		
 		except socket.error, e:
@@ -2564,6 +2567,18 @@ class OSCStreamRequestHandler(StreamRequestHandler, OSCAddressSpace):
 		# see http://homepage.mac.com/s_lott/iblog/architecture/C551260341/E20081031204203/index.html
 		time.sleep(0.01)
 		
+	def sendOSC(self, oscData):
+		""" This member can be used to transmit OSC messages or OSC bundles
+		over the client/server connection. It is thread save.
+		"""
+		self._txMutex.acquire()
+		if self.connection.fileno() < 0:
+			result = False
+		else:
+			result = OSCStreamMessageSend(self.connection, oscData)
+		self._txMutex.release()
+		return result
+
 """ TODO Note on threaded unbundling for streaming (connection oriented)
 transport:
 
