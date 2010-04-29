@@ -2397,80 +2397,6 @@ class NotSubscribedError(OSCClientError):
 # these two alternatives.
 # 
 ######
-
-def OSCStreamMessageSend(the_socket, msg):
-	"""Send an OSC message over a streaming socket. Raises exception if it
-	should fail. If everything is transmitted properly, True is returned. If
-	socket has been closed, False.
-	"""
-	if not isinstance(msg, OSCMessage):
-		raise TypeError("'msg' argument is not an OSCMessage or OSCBundle object")
-
-	try:
-		binary = msg.getBinary()
-		length = len(binary)
-		# prepend length of packet before the actual message (big endian)
-		len_big_endian = array.array('c', '\0' * 4)
-		struct.pack_into(">L", len_big_endian, 0, length)
-		len_big_endian = len_big_endian.tostring()
-		sent = 0
-		while sent < 4:
-			tmp = the_socket.send(len_big_endian[sent:])
-			if tmp == 0:
-				return False
-			sent += tmp
-		
-		sent = 0
-		while length - sent > 0:
-			tmp = the_socket.send(binary[sent:])
-			if tmp == 0:
-				return False
-			sent += tmp
-
-	except socket.error, e:
-		if e[0] == errno.EPIPE: # broken pipe
-			return False
-		raise e
-	return True
-
-def SocketReceive(socket, count):
-	""" Receive a certain amount of data from the socket and return it. If the
-	remote end should be closed in the meanwhile None is returned.
-	"""
-	chunk = socket.recv(count)
-	if not chunk or len(chunk) == 0:
-		return None
-	while len(chunk) < count:
-		tmp = socket.recv(count - len(chunk))
-		if not tmp or len(tmp) == 0:
-			return None
-		chunk = chunk + tmp
-	return chunk
-
-def OSCStreamMessageReceive(the_socket, who = ""):
-	""" Receive OSC message from a socket and decode.
-	If an error occurs, None is returned, else the message.
-	"""
-	# get OSC packet size from stream which is prepended each transmission
-	chunk = SocketReceive(the_socket, 4)
-	if chunk == None:
-		print who, "OSCStreamMessageReceive: Socket has been closed."
-		return None
-		
-	# extract message length from big endian unsigned long (32 bit) 
-	slen = struct.unpack(">L", chunk)[0]
-	
-	# receive the actual message
-	chunk = SocketReceive(the_socket, slen)
-	if chunk == None:
-		print who, "OSCStreamMessageReceive: Socket has been closed."
-		return None
-
-	msg = decodeOSC(chunk)
-	if msg == None:
-		raise OSCError("%s OSCStreamMessageReceive: Message decoding failed.", who)
-	
-	return msg
 				
 class OSCStreamRequestHandler(StreamRequestHandler, OSCAddressSpace):
 	""" This is the central class of a streaming OSC server. If a client
@@ -2525,7 +2451,73 @@ class OSCStreamRequestHandler(StreamRequestHandler, OSCAddressSpace):
 		StreamRequestHandler.finish(self)
 		self.server._clientUnregister(self)
 		print "SERVER: Client connection handled."
-		
+	def _transmit(self, data):
+		sent = 0
+		while sent < len(data):
+			tmp = self.connection.send(data[sent:])
+			if tmp == 0:
+				return False
+			sent += tmp
+		return True
+	def _transmitMsg(self, msg):
+		"""Send an OSC message over a streaming socket. Raises exception if it
+		should fail. If everything is transmitted properly, True is returned. If
+		socket has been closed, False.
+		"""
+		if not isinstance(msg, OSCMessage):
+			raise TypeError("'msg' argument is not an OSCMessage or OSCBundle object")
+
+		try:
+			binary = msg.getBinary()
+			length = len(binary)
+			# prepend length of packet before the actual message (big endian)
+			len_big_endian = array.array('c', '\0' * 4)
+			struct.pack_into(">L", len_big_endian, 0, length)
+			len_big_endian = len_big_endian.tostring()
+			if self._transmit(len_big_endian) and self._transmit(binary):
+				return True
+			return False			
+		except socket.error, e:
+			if e[0] == errno.EPIPE: # broken pipe
+				return False
+			raise e
+
+	def _receive(self, count):
+		""" Receive a certain amount of data from the socket and return it. If the
+		remote end should be closed in the meanwhile None is returned.
+		"""
+		chunk = self.connection.recv(count)
+		if not chunk or len(chunk) == 0:
+			return None
+		while len(chunk) < count:
+			tmp = self.connection.recv(count - len(chunk))
+			if not tmp or len(tmp) == 0:
+				return None
+			chunk = chunk + tmp
+		return chunk
+
+	def _receiveMsg(self):
+		""" Receive OSC message from a socket and decode.
+		If an error occurs, None is returned, else the message.
+		"""
+		# get OSC packet size from stream which is prepended each transmission
+		chunk = self._receive(4)
+		if chunk == None:
+			print "SERVER: Socket has been closed."
+			return None
+		# extract message length from big endian unsigned long (32 bit) 
+		slen = struct.unpack(">L", chunk)[0]
+		# receive the actual message
+		chunk = self._receive(slen)
+		if chunk == None:
+			print "SERVER: Socket has been closed."
+			return None
+		# decode OSC data and dispatch
+		msg = decodeOSC(chunk)
+		if msg == None:
+			raise OSCError("SERVER: Message decoding failed.")		
+		return msg
+
 	def handle(self):
 		"""
 		Handle a connection.
@@ -2540,7 +2532,7 @@ class OSCStreamRequestHandler(StreamRequestHandler, OSCAddressSpace):
 		print "SERVER: Entered server loop"
 		try:
 			while True:
-				decoded = OSCStreamMessageReceive(self.connection, "SERVER:")
+				decoded = self._receiveMsg()
 				if decoded == None:
 					return
 				elif len(decoded) <= 0:
@@ -2560,7 +2552,10 @@ class OSCStreamRequestHandler(StreamRequestHandler, OSCAddressSpace):
 				else:
 					# no replies, continue receiving
 					continue
-				if not self.sendOSC(msg):
+				self._txMutex.acquire()
+				txOk = self._transmitMsg(msg)
+				self._txMutex.release()
+				if not txOk:
 					break
 		
 		except socket.error, e:
@@ -2571,16 +2566,12 @@ class OSCStreamRequestHandler(StreamRequestHandler, OSCAddressSpace):
 			else:
 				raise e
 		
-		
 	def sendOSC(self, oscData):
 		""" This member can be used to transmit OSC messages or OSC bundles
 		over the client/server connection. It is thread save.
 		"""
 		self._txMutex.acquire()
-		if self.connection.fileno() < 0:
-			result = False
-		else:
-			result = OSCStreamMessageSend(self.connection, oscData)
+		result = self._transmitMsg(oscData)
 		self._txMutex.release()
 		return result
 
