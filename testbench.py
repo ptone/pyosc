@@ -39,7 +39,7 @@ def testStreamingServerAndClient(listen_address):
 	# define a message-handler function for the server to call.
 	def printing_handler(addr, tags, stuff, source):
 		msg_string = "%s [%s] %s" % (addr, tags, str(stuff))
-		msg_string = "SERVER: Got '%s' from %s\n" % (msg_string, getUrlStr(source))
+		msg_string = "SERVER: Got '%s' from %s" % (msg_string, getUrlStr(source))
 		print msg_string
 		
 		# send a reply to the client.
@@ -92,10 +92,13 @@ def testStreamingServerAndClient(listen_address):
 	print "Instantiating OSCStreamingClient:"
 	def printed_handler(addr, tags, stuff, source):
 		print "CLIENT: Printed Handler: ", addr
+	def broadcast_handler(addr, tags, stuff, source):
+		print "CLIENT: Broadcast Handler: ", addr
 		
 	c = OSCStreamingClient()
 	c.connect(listen_address)
 	c.addMsgHandler("/printed", printed_handler)
+	c.addMsgHandler("/broadcast", broadcast_handler)
 	
 	print "\nSending Messages"
 	print2 = print1.copy()
@@ -149,6 +152,11 @@ def testStreamingServerAndClient(listen_address):
 		count = 6
 		while s.run :
 			time.sleep(1)
+			# test broadcasting to all connected clients
+			msg = OSCMessage("/broadcast")
+			msg.append(count)
+			s.broadcastToClients(msg)
+			
 			msg = OSCMessage("/print")
 			msg.append(count)
 			c.sendOSC(msg)
@@ -157,6 +165,7 @@ def testStreamingServerAndClient(listen_address):
 				# send termination message (test context message handlers)
 				msg = OSCMessage("/exit")
 				c.sendOSC(msg)
+			
 	except KeyboardInterrupt:
 		print "Interrupted."
 			
@@ -164,6 +173,9 @@ def testStreamingServerAndClient(listen_address):
 	c.close()
 	
 	print "Closing server"
+	# make sure server receiving thread is scheduled before we close the server
+	# so that it can recognize, that the client disconnected itself 
+	time.sleep(1)
 	s.stop()
 	
 	print "Done. Arrivederci!"

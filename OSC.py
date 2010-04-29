@@ -2496,7 +2496,7 @@ class OSCStreamRequestHandler(StreamRequestHandler, OSCAddressSpace):
 		self._txMutex = threading.Lock()
 		OSCAddressSpace.__init__(self)
 		StreamRequestHandler.__init__(self, request, client_address, server)
-		
+
 	def _unbundle(self, decoded):
 		"""Recursive bundle-unpacking function"""
 		if decoded[0] != "#bundle":
@@ -2515,6 +2515,7 @@ class OSCStreamRequestHandler(StreamRequestHandler, OSCAddressSpace):
 		StreamRequestHandler.setup(self)
 		print "SERVER: New client connection."
 		self.setupAddressSpace()
+		self.server._clientRegister(self)
 		
 	def setupAddressSpace(self):
 		""" Override this function to customize your address space. """
@@ -2522,6 +2523,7 @@ class OSCStreamRequestHandler(StreamRequestHandler, OSCAddressSpace):
 	
 	def finish(self):
 		StreamRequestHandler.finish(self)
+		self.server._clientUnregister(self)
 		print "SERVER: Client connection handled."
 		
 	def handle(self):
@@ -2538,7 +2540,7 @@ class OSCStreamRequestHandler(StreamRequestHandler, OSCAddressSpace):
 		print "SERVER: Entered server loop"
 		try:
 			while True:
-				decoded = OSCStreamMessageReceive(self.connection, "SERVER")
+				decoded = OSCStreamMessageReceive(self.connection, "SERVER:")
 				if decoded == None:
 					return
 				elif len(decoded) <= 0:
@@ -2562,10 +2564,13 @@ class OSCStreamRequestHandler(StreamRequestHandler, OSCAddressSpace):
 					break
 		
 		except socket.error, e:
-			raise e
+			if e[0] == errno.ECONNRESET:
+				# if connection has been reset by client, we do not care much
+				# about it, we just assume our duty fullfilled
+				print "SERVER: Connection has been reset by peer."
+			else:
+				raise e
 		
-		# see http://homepage.mac.com/s_lott/iblog/architecture/C551260341/E20081031204203/index.html
-		time.sleep(0.01)
 		
 	def sendOSC(self, oscData):
 		""" This member can be used to transmit OSC messages or OSC bundles
@@ -2616,6 +2621,8 @@ class OSCStreamingServer(TCPServer):
 		  - server_address ((host, port) tuple): the local host & UDP-port
 		  the server listens for new connections.
 		"""
+		self._clientList = []
+		self._clientListMutex = threading.Lock()
 		TCPServer.__init__(self, address, self.RequestHandlerClass)
 		self.socket.settimeout(self.socket_timeout)
 		
@@ -2640,7 +2647,30 @@ class OSCStreamingServer(TCPServer):
 		self.server_close()
 		# 2.6 only
 		#self.shutdown()
+
+	def _clientRegister(self, client):
+		""" Gets called by each request/connection handler when connection is
+		established to add itself to the client list
+		"""
+		self._clientListMutex.acquire()
+		self._clientList.append(client)
+		self._clientListMutex.release()
 		
+	def _clientUnregister(self, client):
+		""" Gets called by each request/connection handler when connection is
+		lost to remove itself from the client list
+		"""
+		self._clientListMutex.acquire()
+		self._clientList.remove(client)
+		self._clientListMutex.release()
+
+	def broadcastToClients(self, oscData):
+		""" Send OSC message or bundle to all connected clients. """
+		result = True
+		for client in self._clientList:
+			result = result and client.sendOSC(oscData)
+		return result
+
 class OSCStreamingServerThreading(ThreadingMixIn, OSCStreamingServer):
 	pass
 	""" Implements a server which spawns a separate thread for each incoming
@@ -2666,18 +2696,30 @@ class OSCStreamingClient(OSCAddressSpace):
 	rcvbuf_size = 4096 * 8
 
 	def __init__(self):
+		self._txMutex = threading.Lock()
 		OSCAddressSpace.__init__(self)
 		self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, self.sndbuf_size)
 		self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, self.rcvbuf_size)
-
+		self.socket.settimeout(1.0)
+		self._running = False
+		
 	def _receiving_thread_entry(self):
 		print "CLIENT: Entered receiving thread."
-		
-		while True:
-			decoded = OSCStreamMessageReceive(self.socket, "CLIENT")
+		self._running = True
+		while self._running:
+			try:
+				decoded = OSCStreamMessageReceive(self.socket, "CLIENT")
+			except socket.timeout:
+				continue
+			except socket.error, e:
+				if e[0] == errno.ECONNRESET:
+					print "CLIENT: Connection reset by peer."
+					break
+				else:
+					raise e
 			if decoded == None:
-				return
+				break
 			elif len(decoded) <= 0:
 				continue
 			
@@ -2691,8 +2733,9 @@ class OSCStreamingClient(OSCAddressSpace):
 				msg = self.replies[0]
 			else:
 				continue
-			OSCStreamMessageSend(self.socket, msg)
-		
+			if not self.sendOSC(msg):
+				break
+		print "CLIENT: receiving thread terminated."
 	def _unbundle(self, decoded):
 		if decoded[0] != "#bundle":
 			self.replies += self.dispatchMessage(decoded[0], decoded[1][1:], decoded[2:], self.socket.getpeername())
@@ -2712,15 +2755,29 @@ class OSCStreamingClient(OSCAddressSpace):
 		self.receiving_thread.start()
 		
 	def close(self):
-		self.socket.shutdown(socket.SHUT_RDWR)
+		# let socket time out
+		self._running = False
 		self.receiving_thread.join()
-		# see http://homepage.mac.com/s_lott/iblog/architecture/C551260341/E20081031204203/index.html
-		time.sleep(0.01)
 		self.socket.close()
 
 	def sendOSC(self, msg):
-		OSCStreamMessageSend(self.socket, msg)
+		"""Send an OSC message or bundle to the server. Can raise a socket
+		exception when the client or the server closed the socket. The user
+		should take care not to send data after closing the client.
 		
+		Note that because we allow the socket to time out, the send
+		operation can time out which can result in data being transmitted
+		only partially (you will notice this though, since the exception is not
+		caught here. Up to now I made no provisions to handle this. If this
+		should become a problem, OSCStreamMessageSend must be able to catch
+		those exceptions and retry until all data is transmitted. Usually a
+		second for the timeout is ages but Murphy is everywhere... 
+		"""
+		self._txMutex.acquire()
+		txOk = OSCStreamMessageSend(self.socket, msg)
+		self._txMutex.release()
+		return txOk
+	
 	def __str__(self):
 		"""Returns a string containing this Client's Class-name, software-version
 		and the remote-address it is connected to (if any)
