@@ -2704,21 +2704,54 @@ class OSCStreamingClient(OSCAddressSpace):
 		self.socket.settimeout(1.0)
 		self._running = False
 		
+	def _receiveWithTimeout(self, count):
+		chunk = str()
+		while len(chunk) < count:
+			try:
+				tmp = self.socket.recv(count - len(chunk))
+			except socket.timeout:
+				if not self._running:
+					print "CLIENT: Socket timed out and termination requested."
+					return None
+				else:
+					continue
+			except socket.error, e:
+				if e[0] == errno.ECONNRESET:
+					print "CLIENT: Connection reset by peer."
+					return None
+				else:
+					raise e
+			if not tmp or len(tmp) == 0:
+				print "CLIENT: Socket has been closed."
+				return None
+			chunk = chunk + tmp
+		return chunk
+	def _receiveMsgWithTimeout(self):
+		""" Receive OSC message from a socket and decode.
+		If an error occurs, None is returned, else the message.
+		"""
+		# get OSC packet size from stream which is prepended each transmission
+		chunk = self._receiveWithTimeout(4)
+		if not chunk:
+			return None
+		# extract message length from big endian unsigned long (32 bit) 
+		slen = struct.unpack(">L", chunk)[0]
+		# receive the actual message
+		chunk = self._receiveWithTimeout(slen)
+		if not chunk:
+			return None
+		# decode OSC content
+		msg = decodeOSC(chunk)
+		if msg == None:
+			raise OSCError("CLIENT: Message decoding failed.")
+		return msg
+
 	def _receiving_thread_entry(self):
 		print "CLIENT: Entered receiving thread."
 		self._running = True
 		while self._running:
-			try:
-				decoded = OSCStreamMessageReceive(self.socket, "CLIENT")
-			except socket.timeout:
-				continue
-			except socket.error, e:
-				if e[0] == errno.ECONNRESET:
-					print "CLIENT: Connection reset by peer."
-					break
-				else:
-					raise e
-			if decoded == None:
+			decoded = self._receiveMsgWithTimeout()
+			if not decoded:
 				break
 			elif len(decoded) <= 0:
 				continue
@@ -2733,9 +2766,13 @@ class OSCStreamingClient(OSCAddressSpace):
 				msg = self.replies[0]
 			else:
 				continue
-			if not self.sendOSC(msg):
+			self._txMutex.acquire()
+			txOk = self._transmitMsgWithTimeout(msg)
+			self._txMutex.release()
+			if not txOk:
 				break
-		print "CLIENT: receiving thread terminated."
+		print "CLIENT: Receiving thread terminated."
+		
 	def _unbundle(self, decoded):
 		if decoded[0] != "#bundle":
 			self.replies += self.dispatchMessage(decoded[0], decoded[1][1:], decoded[2:], self.socket.getpeername())
@@ -2760,21 +2797,47 @@ class OSCStreamingClient(OSCAddressSpace):
 		self.receiving_thread.join()
 		self.socket.close()
 
-	def sendOSC(self, msg):
-		"""Send an OSC message or bundle to the server. Can raise a socket
-		exception when the client or the server closed the socket. The user
-		should take care not to send data after closing the client.
+	def _transmitWithTimeout(self, data):
+		sent = 0
+		while sent < len(data):
+			try:
+				tmp = self.socket.send(data[sent:])
+			except socket.timeout:
+				if not self._running:
+					print "CLIENT: Socket timed out and termination requested."
+					return False
+				else:
+					continue
+			except socket.error, e:
+				if e[0] == errno.ECONNRESET:
+					print "CLIENT: Connection reset by peer."
+					return False
+				else:
+					raise e
+			if tmp == 0:
+				return False
+			sent += tmp
+		return True
 		
-		Note that because we allow the socket to time out, the send
-		operation can time out which can result in data being transmitted
-		only partially (you will notice this though, since the exception is not
-		caught here. Up to now I made no provisions to handle this. If this
-		should become a problem, OSCStreamMessageSend must be able to catch
-		those exceptions and retry until all data is transmitted. Usually a
-		second for the timeout is ages but Murphy is everywhere... 
+	def _transmitMsgWithTimeout(self, msg):
+		if not isinstance(msg, OSCMessage):
+			raise TypeError("'msg' argument is not an OSCMessage or OSCBundle object")
+		binary = msg.getBinary()
+		length = len(binary)
+		# prepend length of packet before the actual message (big endian)
+		len_big_endian = array.array('c', '\0' * 4)
+		struct.pack_into(">L", len_big_endian, 0, length)
+		len_big_endian = len_big_endian.tostring()
+		if self._transmitWithTimeout(len_big_endian) and self._transmitWithTimeout(binary):
+			return True
+		else:
+			return False
+
+	def sendOSC(self, msg):
+		"""Send an OSC message or bundle to the server. Returns True on success.
 		"""
 		self._txMutex.acquire()
-		txOk = OSCStreamMessageSend(self.socket, msg)
+		txOk = self._transmitMsgWithTimeout(msg)
 		self._txMutex.release()
 		return txOk
 	
