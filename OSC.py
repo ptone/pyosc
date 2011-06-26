@@ -241,11 +241,14 @@ class OSCMessage(object):
 	
 	Additional methods exist for retreiving typetags or manipulating items as (typetag, value) tuples.
 	"""
-	def __init__(self, address=""):
+	def __init__(self, address="", *args):
 		"""Instantiate a new OSCMessage.
-		The OSC-address can be specified with the 'address' argument
+		The OSC-address can be specified with the 'address' argument.
+		The rest of the arguments are appended as data.
 		"""
 		self.clear(address)
+		if len(args)>0:
+			self.append(*args)
 
 	def setAddress(self, address):
 		"""Set or change the OSC-address
