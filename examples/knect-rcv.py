@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 from OSC import OSCServer
 import sys
+from time import sleep
 
 server = OSCServer( ("localhost", 7110) )
+server.timeout = 0
+run = True
 
 def user_callback(path, tags, args, source):
     # which user will be determined by path:
@@ -15,12 +18,22 @@ def user_callback(path, tags, args, source):
 
 def quit_callback(path, tags, args, source):
     # don't do this at home (or it'll quit blender)
-    server.close()
-    sys.exit(0)
+    global run
+    run = False
 
 server.addMsgHandler( "/user/1", user_callback )
 server.addMsgHandler( "/user/2", user_callback )
 server.addMsgHandler( "/user/3", user_callback )
 server.addMsgHandler( "/user/4", user_callback )
 server.addMsgHandler( "/quit", quit_callback )
-server.serve_forever()
+
+
+def each_frame():
+    server.handle_request()
+
+# simulate a "game engine"
+while run:
+    sleep(1)
+    each_frame()
+
+server.close()
