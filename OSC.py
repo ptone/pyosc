@@ -2865,3 +2865,5 @@ class OSCStreamingClient(OSCAddressSpace):
 		"""Compare function.
 		"""
 		return not self.__eq__(other)
+
+# vim:noexpandtab
