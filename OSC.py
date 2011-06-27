@@ -1037,42 +1037,46 @@ class OSCClient(object):
 
 	def __init__(self, server=None):
 		"""Construct an OSC Client.
-		When the 'address' argument is given this client is connected to a specific remote server.
-		  - address ((host, port) tuple): the address of the remote server to send all messages to
-		Otherwise it acts as a generic client:
-		  If address == 'None', the client doesn't connect to a specific remote server,
-		  and the remote address must be supplied when calling sendto()
 		  - server: Local OSCServer-instance this client will use the socket of for transmissions.
 		  If none is supplied, a socket will be created.
 		"""
 		self.socket = None
-		
-		if server == None:
-			self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-			self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, self.sndbuf_size)
-			self._fd = self.socket.fileno()
-
-			self.server = None
-		else:
-			self.setServer(server)
-
+		self.setServer(server)
 		self.client_address = None
+
+	def _setSocket(self, skt):
+		"""Set and configure client socket"""
+		if self.socket != None:
+			self.close()
+		self.socket = skt
+		self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, self.sndbuf_size)
+		self._fd = self.socket.fileno()
+
+	def _ensureConnected(self, address):
+		"""Make sure client has a socket connected to address"""
+		if not self.socket:
+			# TODO chose the right address family based on addr or somesuch
+			self._setSocket(socket.socket(socket.AF_INET, socket.SOCK_DGRAM))
+		self.socket.connect(address)
 		
 	def setServer(self, server):
 		"""Associate this Client with given server.
 		The Client will send from the Server's socket.
 		The Server will use this Client instance to send replies.
 		"""
+		if server == None:
+			if hasattr(self,'server') and self.server:
+				if self.server.client != self:
+					raise OSCClientError("Internal inconsistency")
+				self.server.client.close()
+				self.server.client = None
+			self.server = None
+			return
+
 		if not isinstance(server, OSCServer):
 			raise ValueError("'server' argument is not a valid OSCServer object")
 		
-		if self.socket != None:
-			self.close()
-
-		self.socket = server.socket.dup()
-		self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, self.sndbuf_size)
-		self._fd = self.socket.fileno()
-
+		self._setSocket(server.socket.dup())
 		self.server = server
 
 		if self.server.client != None:
@@ -1106,12 +1110,19 @@ class OSCClient(object):
 		"""
 		if not isinstance(other, self.__class__):
 			return False
-			
-		isequal = cmp(self.socket._sock, other.socket._sock)
-		if isequal and self.server and other.server:
+
+		if self.socket and other.socket:
+			sockEqual = cmp(self.socket._sock, other.socket._sock)
+		else:
+			sockEqual = (self.socket == None and other.socket == None)
+
+		if not sockEqual:
+			return False
+
+		if  self.server and other.server:
 			return cmp(self.server, other.server)
-		
-		return isequal
+		else:
+			return self.server == None and other.server == None
 	
 	def __ne__(self, other):
 		"""Compare function.
@@ -1123,7 +1134,10 @@ class OSCClient(object):
 		connected to or None if not connected to any server.
 		"""
 		try:
-			return self.socket.getpeername()
+			if self.socket:
+				return self.socket.getpeername()
+			else:
+				return None
 		except socket.error:
 			return None
 
@@ -1134,7 +1148,7 @@ class OSCClient(object):
 		  - port:  UDP-port the remote OSC server listens to.
 		"""
 		try:
-			self.socket.connect(address)
+			self._ensureConnected(address)
 			self.client_address = address
 		except socket.error, e:
 			self.client_address = None
@@ -1162,7 +1176,7 @@ class OSCClient(object):
 			raise OSCClientError("Timed out waiting for file descriptor")
 		
 		try:
-			self.socket.connect(address)
+			self._ensureConnected(address)
 			self.socket.sendall(msg.getBinary())
 			
 			if self.client_address:
@@ -1185,6 +1199,9 @@ class OSCClient(object):
 		"""
 		if not isinstance(msg, OSCMessage):
 			raise TypeError("'msg' argument is not an OSCMessage or OSCBundle object")
+
+		if not self.socket:
+			raise OSCClientError("Called send() on non-connected client")
 
 		ret = select.select([],[self._fd], [], timeout)
 		try:
@@ -1885,20 +1902,12 @@ class OSCServer(UDPServer, OSCAddressSpace):
 		client.close()				# shut-down that socket
 		
 		# force our socket upon the client
-		client.socket = self.socket.dup()
-		client.socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, client.sndbuf_size)
-		client._fd = client.socket.fileno()
-		client.server = self
+		client.setServer(self)
 		
 		if client_address:
 			client.connect(client_address)
 			if not self.return_port:
 				self.return_port = client_address[1]
-		
-		if self.client != None:
-			self.client.close()
-
-		self.client = client
 
 	def serve_forever(self):
 		"""Handle one request at a time until server is closed."""
