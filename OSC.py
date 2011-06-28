@@ -1055,8 +1055,11 @@ class OSCClient(object):
 	def _ensureConnected(self, address):
 		"""Make sure client has a socket connected to address"""
 		if not self.socket:
-			# TODO chose the right address family based on addr or somesuch
-			self._setSocket(socket.socket(socket.AF_INET, socket.SOCK_DGRAM))
+			if len(address) == 4:
+				address_family = socket.AF_INET6
+			else:
+				address_family = socket.AF_INET
+			self._setSocket(socket.socket(address_family, socket.SOCK_DGRAM))
 		self.socket.connect(address)
 		
 	def setServer(self, server):
